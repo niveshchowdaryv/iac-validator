@@ -1,0 +1,22 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+terraform/plan.out
+terraform/plan.json
+terraform/conftest-results.json
+checkov.sarif
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Python virtualenvs (local checkov installs)
+.venv/
+__pycache__/
+
+# macOS / OS noise
+.DS_Store
