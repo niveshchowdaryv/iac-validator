@@ -1,0 +1,85 @@
+name: IaC validation
+
+on:
+  push:
+    paths:
+      - "terraform/**"
+      - "policies/**"
+      - ".github/workflows/iac-validate.yml"
+  pull_request:
+    paths:
+      - "terraform/**"
+      - "policies/**"
+  workflow_dispatch:
+
+# Dummy, non-functional placeholders so `terraform plan -refresh=false` works
+# without real AWS credentials. For real deployments, replace with OIDC.
+env:
+  AWS_ACCESS_KEY_ID: dummy
+  AWS_SECRET_ACCESS_KEY: dummy
+  AWS_DEFAULT_REGION: us-east-1
+
+jobs:
+  iac-validate:
+    name: Terraform + Checkov + Conftest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive .
+
+      - name: Terraform init
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Checkov scan (fail on HIGH and CRITICAL)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform
+          check: HIGH,CRITICAL
+          quiet: true
+          output_format: cli,sarif
+          output_file_path: console,checkov.sarif
+
+      - name: Install conftest
+        run: |
+          CONFTEST_VERSION="0.70.0"
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" -o /tmp/conftest.tar.gz
+          tar -xzf /tmp/conftest.tar.gz -C /tmp
+          sudo mv /tmp/conftest /usr/local/bin/conftest
+          conftest --version
+
+      - name: Terraform plan (offline, no refresh)
+        run: terraform plan -refresh=false -input=false -out=plan.out
+
+      - name: Plan to JSON
+        run: terraform show -json plan.out > plan.json
+
+      - name: Conftest policy gates (OPA/Rego)
+        run: |
+          set -o pipefail
+          conftest test plan.json --policy ../policies --output json | tee conftest-results.json
+
+      - name: Upload plan and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iac-validation-reports
+          path: |
+            checkov.sarif
+            terraform/plan.json
+            terraform/plan.out
+            terraform/conftest-results.json
