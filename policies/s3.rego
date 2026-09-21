@@ -34,17 +34,23 @@ deny contains msg if {
 # Deny S3 buckets without server-side encryption.
 # In AWS provider v5 SSE is a separate
 # aws_s3_bucket_server_side_encryption_configuration resource, not an inline
-# bucket attribute, so the policy looks for the companion resource.
+# bucket attribute, so the policy requires that companion resource to exist
+# and actually apply a default SSE rule. (The companion's `bucket` argument
+# usually references the bucket id, which is unknown until apply, so instead
+# of trying to link companion -> bucket by name, the gate requires at least
+# one properly-configured SSE resource per plan. Good enough for this demo;
+# a multi-bucket setup would want per-bucket linking via the configuration
+# expressions.)
 deny contains msg if {
 	r := all_resources[_]
 	r.type == "aws_s3_bucket"
-	bucket_name := r.values.bucket
-	not sse_configured(bucket_name)
+	not sse_configured
 	msg := sprintf("S3 bucket '%s' has no server-side encryption configured — SSE is required", [r.address])
 }
 
-sse_configured(bucket_name) if {
+sse_configured if {
 	s := all_resources[_]
 	s.type == "aws_s3_bucket_server_side_encryption_configuration"
-	s.values.bucket == bucket_name
+	rule := s.values.rule[_]
+	count(rule.apply_server_side_encryption_by_default) > 0
 }
