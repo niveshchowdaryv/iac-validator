@@ -30,10 +30,12 @@ demonstrates that skill end to end: Terraform, CI gating, and policy-as-code.
 └──────────────┘                                                    └──────────────┘
 ```
 
-Sample infra: one S3 bucket, one EC2 instance, one security group — with
-**intentional misconfigurations** (marked `# INTENTIONAL` in `main.tf`) so the
-policies have real violations to catch: a public-read bucket ACL, a bucket with
-no server-side encryption, an untagged EC2 instance, and SSH open to `0.0.0.0/0`.
+Sample infra: one S3 bucket, one EC2 instance, one security group — written to
+**pass** every gate (private bucket with SSE + public-access block, SSH
+restricted to a known admin CIDR, all resources tagged). The `policies/` gates
+prove their teeth against `examples/bad/`, an intentionally misconfigured copy
+(public-read bucket ACL, no server-side encryption, untagged EC2, SSH open to
+`0.0.0.0/0`) that CI plans and asserts is **rejected**.
 
 ## Quickstart
 
@@ -48,17 +50,17 @@ cd iac-validator
 ./scripts/run-local.sh
 ```
 
-**Expected result on weekend 1:** gates **FAIL** — that's the demo. You should
-see 4 policy violations:
+**Expected result:** gates **PASS** on `terraform/`, and the negative-test step
+confirms `examples/bad/` is **rejected** with 4 policy violations:
 
 - `S3 bucket 'aws_s3_bucket.app_data' uses ACL 'public-read' — public bucket ACLs are denied`
 - `S3 bucket 'aws_s3_bucket.app_data' has no server-side encryption configured — SSE is required`
 - `Security group 'aws_security_group.app' allows port 22 from 0.0.0.0/0 — restrict SSH to known CIDRs`
 - `aws_instance 'aws_instance.app' is missing required tag(s): Environment, Owner`
 
-plus the matching Checkov HIGH/CRITICAL findings. No real AWS credentials are
-used anywhere — the plan runs offline (`-refresh=false`) with dummy
-placeholders. Nothing is ever applied to a real account.
+No real AWS credentials are used anywhere — the plan runs offline
+(`-refresh=false`) with dummy placeholders. Nothing is ever applied to a real
+account.
 
 ## 2-weekend build roadmap
 
@@ -70,15 +72,15 @@ placeholders. Nothing is ever applied to a real account.
 - [ ] Push to GitHub, watch the workflow fail on the 4 violations, tune policy messages
 
 **Weekend 2 — green pipeline + cost gate.**
-- [ ] Fix the infra: private ACL + `aws_s3_bucket_public_access_block`, add
+- [x] Fix the infra: private ACL + `aws_s3_bucket_public_access_block`, add
       `aws_s3_bucket_server_side_encryption_configuration`, tag the EC2 instance,
       restrict SSH ingress to a known CIDR — gates go green
 - [ ] Add an [infracost](https://www.infracost.io/) step that comments the
       estimated monthly cost delta on every PR (cost-estimation gate)
 - [ ] Add 3+ more policies: EBS encryption by default, S3 versioning enabled,
       deny hardcoded secrets in user-data, require IMDSv2 on EC2
-- [ ] Convert the intentional misconfigs into a `examples/bad/` vs
-      `examples/good/` pair to demo both outcomes in interviews
+- [x] Convert the intentional misconfigs into a `examples/bad/` vs
+      `terraform/` (good) pair to demo both outcomes in interviews
 
 ## Suggested resume bullets
 

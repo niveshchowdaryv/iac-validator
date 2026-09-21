@@ -28,30 +28,17 @@ resource "aws_s3_bucket" "app_data" {
   # Bucket names are globally unique; change the suffix if you ever apply this.
   bucket = "iac-validator-demo-${var.environment}"
 
+  # INTENTIONAL: public-read ACL — caught by policies/s3.rego (deny public S3 ACLs)
+  acl = "public-read"
+
   tags = {
     Environment = var.environment
     Owner       = var.owner
   }
 }
 
-resource "aws_s3_bucket_server_side_encryption_configuration" "app_data" {
-  bucket = aws_s3_bucket.app_data.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-resource "aws_s3_bucket_public_access_block" "app_data" {
-  bucket = aws_s3_bucket.app_data.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
+# INTENTIONAL: no aws_s3_bucket_server_side_encryption_configuration resource —
+# caught by policies/s3.rego (deny S3 without SSE)
 
 # --------------------------------------------------------------------------
 # Security group
@@ -61,12 +48,12 @@ resource "aws_security_group" "app" {
   description = "Demo security group for iac-validator"
 
   ingress {
-    description = "SSH from admin network only"
+    description = "SSH from anywhere"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    # Placeholder admin CIDR (TEST-NET-3 documentation range); override for real use.
-    cidr_blocks = [var.admin_cidr]
+    # INTENTIONAL: 0.0.0.0/0 on port 22 — caught by policies/ec2.rego
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   ingress {
@@ -100,8 +87,6 @@ resource "aws_instance" "app" {
   instance_type          = "t3.micro"
   vpc_security_group_ids = [aws_security_group.app.id]
 
-  tags = {
-    Environment = var.environment
-    Owner       = var.owner
-  }
+  # INTENTIONAL: no tags block — caught by policies/tags.rego
+  # (requires Environment and Owner tags on every tagged resource type)
 }

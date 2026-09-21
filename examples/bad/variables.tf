@@ -15,9 +15,3 @@ variable "owner" {
   type        = string
   default     = "nivesh"
 }
-
-variable "admin_cidr" {
-  description = "CIDR allowed SSH access; keep it to a known admin network, never 0.0.0.0/0."
-  type        = string
-  default     = "203.0.113.10/32"
-}

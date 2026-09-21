@@ -5,11 +5,13 @@ on:
     paths:
       - "terraform/**"
       - "policies/**"
+      - "examples/**"
       - ".github/workflows/iac-validate.yml"
   pull_request:
     paths:
       - "terraform/**"
       - "policies/**"
+      - "examples/**"
   workflow_dispatch:
 
 # Dummy, non-functional placeholders so `terraform plan -refresh=false` works
@@ -72,6 +74,21 @@ jobs:
         run: |
           set -o pipefail
           conftest test plan.json --policy ../policies --output json | tee conftest-results.json
+
+      # Negative test: the intentionally-bad example in examples/bad must be
+      # REJECTED by the same policies. If conftest ever passes on it, the gate
+      # is broken and the build fails.
+      - name: Conftest negative test (bad example must fail)
+        working-directory: examples/bad
+        run: |
+          terraform init -backend=false -input=false
+          terraform plan -refresh=false -input=false -out=plan.out
+          terraform show -json plan.out > plan.json
+          if conftest test plan.json --policy ../../policies --output stdout; then
+            echo "::error::conftest unexpectedly PASSED on examples/bad — the gate should have caught the intentional violations"
+            exit 1
+          fi
+          echo "conftest correctly rejected the intentionally-bad example"
 
       - name: Upload plan and reports
         if: always()

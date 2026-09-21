@@ -56,10 +56,23 @@ elif [ -f plan.json ]; then
   skip "conftest — install from https://www.conftest.dev/install/ or install docker (plan.json kept at terraform/plan.json)"
 fi
 
+echo "### 6. Conftest negative test (examples/bad must be rejected)"
+if [ -f plan.json ] && have conftest; then
+  cd "$ROOT/examples/bad"
+  terraform init -backend=false -input=false >/dev/null \
+    && terraform plan -refresh=false -input=false -out=plan.out >/dev/null \
+    && terraform show -json plan.out >plan.json \
+    && ! conftest test plan.json --policy ../../policies >/dev/null \
+    && pass "conftest rejects examples/bad" || fail "conftest negative test"
+elif have docker; then
+  skip "conftest negative test — install conftest for the full local run"
+else
+  skip "conftest negative test — install from https://www.conftest.dev/install/ or install docker"
+fi
+
 echo
 if [ "$FAILURES" -gt 0 ]; then
   echo "Result: $FAILURES gate(s) FAILED."
-  echo "(Expected on weekend 1: the INTENTIONAL misconfigurations in terraform/main.tf should trip the policies.)"
   exit 1
 fi
 echo "Result: all gates passed."
