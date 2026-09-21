@@ -1,18 +1,19 @@
 # iac-validator
 
-**What:** a policy-as-code gate for Terraform. Every pull request that touches
-infrastructure is automatically checked twice — once by [Checkov](https://www.checkov.io/)
-(industry-standard static analysis) and once by custom [OPA/Rego](https://www.openpolicyagent.org/)
-policies evaluated with [conftest](https://www.conftest.dev/) against the real
-`terraform plan` JSON. Non-compliant plans fail the build before they can merge.
+A policy-as-code gate for Terraform. Every pull request that touches
+infrastructure gets checked twice — once by
+[Checkov](https://www.checkov.io/) (static analysis) and once by custom
+[OPA/Rego](https://www.openpolicyagent.org/) policies evaluated with
+[conftest](https://www.conftest.dev/) against the real `terraform plan`
+JSON. Non-compliant plans fail the build before they can merge.
 
-**Why:** misconfigured cloud infrastructure — public storage buckets, unencrypted
-data, SSH open to the world, untagged resources — is one of the top causes of
-breaches and surprise cloud bills. Cloud consultancies sell exactly this:
-preventing misconfigurations from ever reaching production. This project
-demonstrates that skill end to end: Terraform, CI gating, and policy-as-code.
+The motivation is pretty simple: misconfigured cloud infrastructure —
+public storage buckets, unencrypted data, SSH open to the world, untagged
+resources — is one of the top causes of breaches and surprise cloud bills.
+Catching that stuff in CI instead of in an incident review is the whole
+point.
 
-## Architecture
+## How it's wired
 
 ```
 ┌──────────────┐   git push / PR    ┌────────────────────────────┐
@@ -30,19 +31,23 @@ demonstrates that skill end to end: Terraform, CI gating, and policy-as-code.
 └──────────────┘                                                    └──────────────┘
 ```
 
-Sample infra: one S3 bucket, one EC2 instance, one security group — written to
-**pass** every gate (private bucket with SSE + public-access block, SSH
-restricted to a known admin CIDR, all resources tagged). The `policies/` gates
-prove their teeth against `examples/bad/`, an intentionally misconfigured copy
-(public-read bucket ACL, no server-side encryption, untagged EC2, SSH open to
-`0.0.0.0/0`) that CI plans and asserts is **rejected**.
+The sample infra (`terraform/`) is one S3 bucket, one EC2 instance, one
+security group — written to **pass** every gate: private bucket with SSE and
+a public-access block, SSH restricted to a known admin CIDR, all resources
+tagged with `Environment` and `Owner`.
+
+To prove the gates actually bite, there's an intentionally misconfigured
+copy at `examples/bad/` (public-read bucket ACL, no server-side encryption,
+untagged EC2, SSH open to `0.0.0.0/0`). CI plans it and asserts it gets
+**rejected** — a negative test, so a policy that silently stops working
+gets caught too.
 
 ## Quickstart
 
-Prerequisites: `terraform >= 1.5`. For the policy gates you need
+You need `terraform >= 1.5`. For the policy gates you need
 [checkov](https://www.checkov.io/) (`pip install checkov`) and
-[conftest](https://www.conftest.dev/install/) — or just `docker`, the script
-falls back to container images automatically.
+[conftest](https://www.conftest.dev/install/) — or just `docker`, because
+the script falls back to container images automatically.
 
 ```bash
 git clone <your-repo-url> iac-validator
@@ -50,8 +55,9 @@ cd iac-validator
 ./scripts/run-local.sh
 ```
 
-**Expected result:** gates **PASS** on `terraform/`, and the negative-test step
-confirms `examples/bad/` is **rejected** with 4 policy violations:
+**Expected result:** the gates **pass** on `terraform/`, and the
+negative-test step confirms `examples/bad/` is **rejected** with 4 policy
+violations:
 
 - `S3 bucket 'aws_s3_bucket.app_data' uses ACL 'public-read' — public bucket ACLs are denied`
 - `S3 bucket 'aws_s3_bucket.app_data' has no server-side encryption configured — SSE is required`
@@ -59,39 +65,40 @@ confirms `examples/bad/` is **rejected** with 4 policy violations:
 - `aws_instance 'aws_instance.app' is missing required tag(s): Environment, Owner`
 
 No real AWS credentials are used anywhere — the plan runs offline
-(`-refresh=false`) with dummy placeholders. Nothing is ever applied to a real
+(`-refresh=false`) with dummy placeholders. Nothing ever touches a real
 account.
 
-## 2-weekend build roadmap
+## Notes
 
-**Weekend 1 — red pipeline (this scaffold).**
-- [x] Sample Terraform (S3 + EC2 + security group) with intentional misconfigs
-- [x] Checkov gate in CI, failing on HIGH and above
-- [x] Custom OPA/Rego policies (S3, EC2, tags) evaluated by conftest on plan JSON
-- [x] Local runner script mirroring CI
-- [ ] Push to GitHub, watch the workflow fail on the 4 violations, tune policy messages
+- The negative test is the part I'm most glad I added. When I first set this
+  up, the sample infra intentionally violated its own policies, which meant
+  the "green pipeline" story was nonsense — CI could never actually pass.
+  Splitting good infra (`terraform/`) from known-bad infra (`examples/bad/`)
+  fixed that, and the negative test guards the guards.
+- `admin_cidr` defaults to `203.0.113.10/32` (documentation range), so
+  nothing real is exposed by default. Override it with
+  `-var="admin_cidr=<your-ip>/32"` for your own use.
+- Rego policies live in `policies/`: `s3.rego` (no public ACLs, SSE
+  required), `ec2.rego` (no open SSH), `tags.rego` (Environment + Owner
+  required). Four deny rules total.
 
-**Weekend 2 — green pipeline + cost gate.**
-- [x] Fix the infra: private ACL + `aws_s3_bucket_public_access_block`, add
-      `aws_s3_bucket_server_side_encryption_configuration`, tag the EC2 instance,
-      restrict SSH ingress to a known CIDR — gates go green
+## Where I'd take this next
+
 - [ ] Add an [infracost](https://www.infracost.io/) step that comments the
-      estimated monthly cost delta on every PR (cost-estimation gate)
-- [ ] Add 3+ more policies: EBS encryption by default, S3 versioning enabled,
-      deny hardcoded secrets in user-data, require IMDSv2 on EC2
-- [x] Convert the intentional misconfigs into a `examples/bad/` vs
-      `terraform/` (good) pair to demo both outcomes in interviews
+      estimated monthly cost delta on every PR.
+- [ ] More policies: EBS encryption by default, S3 versioning enabled, deny
+      hardcoded secrets in user-data, require IMDSv2 on EC2.
+- [ ] A second example environment (e.g. a "staging" variant) to show the
+      gates working across multiple configs.
 
-## Suggested resume bullets
+## If you're reading this on my resume
 
-- Built an IaC policy-as-code gate (Terraform + Checkov + OPA/Conftest) that
-  blocks non-compliant AWS plans in CI — caught [N] misconfigurations
-  (public S3 ACLs, unencrypted buckets, open SSH ingress) across [M] pull
-  requests before merge.
-- Enforced [N] custom Rego policies (mandatory SSE, Environment/Owner tag
-  compliance, restricted SSH ingress) as required CI checks on Terraform plans,
-  cutting manual infrastructure review time by [X]%.
+Built an IaC policy-as-code gate (Terraform + Checkov + OPA/Conftest) that
+blocks non-compliant AWS plans in CI. The sample infrastructure passes all
+gates; a deliberately misconfigured example is asserted to be rejected by 4
+custom Rego policies (SSE required, no public S3 ACLs, restricted SSH
+ingress, mandatory Environment/Owner tags) — a negative test that catches
+policies silently breaking.
 
 ---
-*Independent side project — not affiliated with any employer. Built to
-demonstrate cloud infrastructure testing and policy-as-code skills.*
+*Independent side project, not affiliated with any employer.*
