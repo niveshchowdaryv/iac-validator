@@ -28,13 +28,17 @@ resource "aws_s3_bucket" "app_data" {
   # Bucket names are globally unique; change the suffix if you ever apply this.
   bucket = "iac-validator-demo-${var.environment}"
 
-  # INTENTIONAL: public-read ACL — caught by policies/s3.rego (deny public S3 ACLs)
-  acl = "public-read"
-
   tags = {
     Environment = var.environment
     Owner       = var.owner
   }
+}
+
+# INTENTIONAL: public-read ACL — caught by policies/s3.rego (deny public S3 ACLs).
+# Separate resource because AWS provider v5 removed the inline `acl` argument.
+resource "aws_s3_bucket_acl" "app_data" {
+  bucket = aws_s3_bucket.app_data.id
+  acl    = "public-read"
 }
 
 # INTENTIONAL: no aws_s3_bucket_server_side_encryption_configuration resource —

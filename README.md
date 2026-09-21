@@ -75,6 +75,15 @@ account.
   the "green pipeline" story was nonsense — CI could never actually pass.
   Splitting good infra (`terraform/`) from known-bad infra (`examples/bad/`)
   fixed that, and the negative test guards the guards.
+- Rego policies read the plan JSON, not the Terraform code — and in AWS
+  provider v5, S3 encryption and ACLs are separate resources, not inline
+  bucket attributes. My first SSE policy checked for an inline
+  `server_side_encryption_configuration` block that can never appear in a v5
+  plan, so it denied *everything*, including the compliant config. The fix
+  looks for the companion `aws_s3_bucket_server_side_encryption_configuration`
+  resource instead. Same story for the public-ACL check in the bad example:
+  the inline `acl = "public-read"` argument doesn't even exist in v5, so the
+  bad example uses an `aws_s3_bucket_acl` resource.
 - `admin_cidr` defaults to `203.0.113.10/32` (documentation range), so
   nothing real is exposed by default. Override it with
   `-var="admin_cidr=<your-ip>/32"` for your own use.
